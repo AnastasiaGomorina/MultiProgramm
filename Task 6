@@ -1,0 +1,90 @@
+#define HAVE_STRUCT_TIMESPEC
+#include <iostream>
+#include <pthread.h>
+#include <chrono>
+#include <thread>
+#include <vector>
+#include <string>
+#include <fstream>
+
+// Структура для передачи параметров потока
+struct ThreadData {
+    std::string str;
+    int delay;
+
+    // Конструктор для инициализации переменных
+    ThreadData(const std::string& s, int d) : str(s), delay(d) {}
+};
+
+// Функция, выполняемая потоком
+void* sleep_and_print(void* arg) {
+    ThreadData* data = static_cast<ThreadData*>(arg);
+    // Задержка, пропорциональная длине строки
+    std::this_thread::sleep_for(std::chrono::milliseconds(data->delay));
+    // Вывод строки
+    std::cout << data->str << std::endl;
+    return nullptr;
+}
+
+// Функция для загрузки строк из файла
+bool load_strings_from_file(const std::string& filename, std::vector<std::string>& strings) {
+    std::ifstream file(filename);
+    if (!file.is_open()) {
+        std::cerr << "Не удалось открыть файл: " << filename << std::endl;
+        return false;
+    }
+    std::string line;
+    while (std::getline(file, line)) {
+        if (!line.empty()) {
+            strings.push_back(line);
+        }
+    }
+    file.close();
+    return true;
+}
+
+int main() {
+    setlocale(LC_ALL, "Ru");
+
+    std::vector<std::string> strings;
+
+    // Имя файла с входными данными
+    std::string filename = "Task_6.txt";
+
+    // Загрузка строк из файла
+    if (!load_strings_from_file(filename, strings)) {
+        return 1;
+    }
+
+    // Вектор для хранения потоков
+    std::vector<pthread_t> threads(strings.size());
+    // Вектор для хранения данных потоков
+    std::vector<ThreadData> thread_data;
+
+    // Коэффициент пропорциональности задержки (в миллисекундах на символ)
+    const int delay_factor = 2000;
+
+    // Заполнение данных потоков и создание потоков
+    for (const auto& str : strings) {
+        int delay = str.length() * delay_factor;
+        thread_data.emplace_back(str, delay);
+    }
+
+    // Создание потоков
+    for (size_t i = 0; i < strings.size(); ++i) {
+        if (pthread_create(&threads[i], nullptr, sleep_and_print, &thread_data[i])) {
+            std::cerr << "Ошибка при создании потока" << std::endl;
+            return 1;
+        }
+    }
+
+    // Ожидание завершения всех потоков
+    for (size_t i = 0; i < threads.size(); ++i) {
+        if (pthread_join(threads[i], nullptr)) {
+            std::cerr << "Ошибка при ожидании завершения потока" << std::endl;
+            return 1;
+        }
+    }
+
+    return 0;
+}
