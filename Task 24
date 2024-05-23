@@ -1,0 +1,96 @@
+#include <iostream>  
+#include <thread>  
+#include <chrono> 
+#include <semaphore> 
+#include <mutex>  
+
+using namespace std;  // Использование стандартного пространства имен для удобства
+
+// Объявление семафоров-счетчиков для деталей и модулей
+std::counting_semaphore<> semA(0);  // Семафор для деталей A
+std::counting_semaphore<> semB(0);  // Семафор для деталей B
+std::counting_semaphore<> semC(0);  // Семафор для деталей C
+std::counting_semaphore<> semModule(0);  // Семафор для модулей
+
+// Объявление мьютекса для синхронизации вывода в консоль
+std::mutex outputMutex;
+
+// Функция для производства детали A
+void produceA() {
+    while (true) {
+        std::this_thread::sleep_for(std::chrono::seconds(1));  // Имитация времени производства детали A (1 секунда)
+        {
+            std::lock_guard<std::mutex> lock(outputMutex);  // Захват мьютекса для синхронизации вывода
+            cout << "Произведена деталь A" << endl;  // Вывод сообщения о производстве детали A
+        }
+        semA.release();  // Увеличение счетчика семафора для деталей A
+    }
+}
+
+// Функция для производства детали B
+void produceB() {
+    while (true) {
+        std::this_thread::sleep_for(std::chrono::seconds(2));  // Имитация времени производства детали B (2 секунды)
+        {
+            std::lock_guard<std::mutex> lock(outputMutex);  // Захват мьютекса для синхронизации вывода
+            cout << "Произведена деталь B" << endl;  // Вывод сообщения о производстве детали B
+        }
+        semB.release();  // Увеличение счетчика семафора для деталей B
+    }
+}
+
+// Функция для производства детали C
+void produceC() {
+    while (true) {
+        std::this_thread::sleep_for(std::chrono::seconds(3));  // Имитация времени производства детали C (3 секунды)
+        {
+            std::lock_guard<std::mutex> lock(outputMutex);  // Захват мьютекса для синхронизации вывода
+            cout << "Произведена деталь C" << endl;  // Вывод сообщения о производстве детали C
+        }
+        semC.release();  // Увеличение счетчика семафора для деталей C
+    }
+}
+
+// Функция для сборки модуля из деталей A и B
+void assembleModule() {
+    while (true) {
+        semA.acquire();  // Ожидание доступности детали A (уменьшение счетчика семафора A)
+        semB.acquire();  // Ожидание доступности детали B (уменьшение счетчика семафора B)
+        {
+            std::lock_guard<std::mutex> lock(outputMutex);  // Захват мьютекса для синхронизации вывода
+            cout << "Собран модуль из деталей A и B" << endl;  // Вывод сообщения о сборке модуля
+        }
+        semModule.release();  // Увеличение счетчика семафора для модулей
+    }
+}
+
+// Функция для сборки винтика из модуля и детали C
+void assembleWidget() {
+    while (true) {
+        semModule.acquire();  // Ожидание доступности модуля (уменьшение счетчика семафора модуля)
+        semC.acquire();  // Ожидание доступности детали C (уменьшение счетчика семафора C)
+        {
+            std::lock_guard<std::mutex> lock(outputMutex);  // Захват мьютекса для синхронизации вывода
+            cout << "Собран винтик из модуля и детали C" << endl;  // Вывод сообщения о сборке винтика
+        }
+    }
+}
+
+int main() {
+    setlocale(LC_ALL, "Ru");
+    // Запуск потоков для производства и сборки
+    std::thread threadA(produceA);  // Запуск потока для производства детали A
+    std::thread threadB(produceB);  // Запуск потока для производства детали B
+    std::thread threadC(produceC);  // Запуск потока для производства детали C
+    std::thread threadModule(assembleModule);  // Запуск потока для сборки модулей
+    std::thread threadWidget(assembleWidget);  // Запуск потока для сборки винтиков
+
+    // Ожидание завершения потоков (в данном случае никогда, так как потоки бесконечны)
+    threadA.join();  // Ожидание завершения потока для производства детали A
+    threadB.join();  // Ожидание завершения потока для производства детали B
+    threadC.join();  // Ожидание завершения потока для производства детали C
+    threadModule.join();  // Ожидание завершения потока для сборки модулей
+    threadWidget.join();  // Ожидание завершения потока для сборки винтиков
+
+    return 0;
+}
