@@ -1,0 +1,83 @@
+#include <iostream>
+#include <filesystem>
+#include <thread>
+#include <vector>
+#include <fstream>
+
+namespace fs = std::filesystem;
+
+// Функция для копирования файла из src в dest
+void copy_file(const fs::path& src, const fs::path& dest) {
+    // Открытие исходного файла для чтения в бинарном режиме
+    std::ifstream src_file(src, std::ios::binary);
+    // Открытие целевого файла для записи в бинарном режиме
+    std::ofstream dest_file(dest, std::ios::binary);
+    // Копирование содержимого исходного файла в целевой файл
+    dest_file << src_file.rdbuf();
+}
+
+// Функция для копирования директории
+void copy_directory(const fs::path& src, const fs::path& dest);
+
+// Функция для обработки содержимого директории и создания потоков для копирования
+void process_directory(const fs::path& src, const fs::path& dest, std::vector<std::thread>& threads) {
+    // Итерация по содержимому исходного каталога
+    for (const auto& entry : fs::directory_iterator(src)) {
+        // Определение пути целевого файла или директории
+        fs::path dest_path = dest / entry.path().filename();
+
+        if (fs::is_directory(entry.status())) {
+            // Если это директория, создаем ее в целевом месте и запускаем поток для ее копирования
+            fs::create_directory(dest_path);
+            threads.emplace_back(copy_directory, entry.path(), dest_path);
+        }
+        else if (fs::is_regular_file(entry.status())) {
+            // Если это файл, запускаем поток для его копирования
+            threads.emplace_back(copy_file, entry.path(), dest_path);
+        }
+    }
+}
+
+// Функция для копирования содержимого директории
+void copy_directory(const fs::path& src, const fs::path& dest) {
+    // Вектор для хранения потоков
+    std::vector<std::thread> threads;
+    // Обработка содержимого директории
+    process_directory(src, dest, threads);
+
+    // Ожидание завершения всех потоков
+    for (auto& thread : threads) {
+        thread.join();
+    }
+}
+
+int main(int argc, char* argv[]) {
+    // Проверка правильности числа аргументов командной строки
+    if (argc != 3) {
+        std::cerr << "Usage: " << argv[0] << " <source_directory> <destination_directory>" << std::endl;
+        return 1;
+    }
+
+    // Определение путей исходного и целевого каталогов
+    fs::path src = argv[1];
+    fs::path dest = argv[2];
+
+    // Проверка существования и типа исходного каталога
+    if (!fs::exists(src) || !fs::is_directory(src)) {
+        std::cerr << "Source directory does not exist or is not a directory: " << src << std::endl;
+        return 1;
+    }
+
+    // Проверка существования целевого каталога
+    if (fs::exists(dest)) {
+        std::cerr << "Destination directory already exists: " << dest << std::endl;
+        return 1;
+    }
+
+    // Создание целевого каталога
+    fs::create_directory(dest);
+    // Копирование содержимого исходного каталога в целевой
+    copy_directory(src, dest);
+
+    return 0;
+}
