@@ -1,0 +1,108 @@
+#define HAVE_STRUCT_TIMESPEC
+#include <iostream>
+#include <pthread.h>
+#include <vector>
+#include <cstdlib>
+#include <csignal>
+#include <atomic>
+#include <chrono>
+
+// Количество итераций задается во время компиляции
+#define NUM_STEPS 200000000
+
+// Глобальная переменная-флаг для завершения потоков
+std::atomic<bool> stop_flag(false);
+
+// Структура для передачи параметров в поток
+struct ThreadData {
+    int start;  // Начальная итерация
+    int step;   // Шаг итерации
+    double sum; // Частичная сумма
+};
+
+// Обработчик сигнала SIGINT
+void signal_handler(int signal) {
+    if (signal == SIGINT) {
+        std::cout << "SIGINT received, stopping calculation..." << std::endl;
+        stop_flag = true; // Устанавливаем флаг завершения
+    }
+}
+
+// Функция, которую будет выполнять каждый поток
+void* calculate_pi(void* arg) {
+    ThreadData* data = (ThreadData*)arg; // Преобразование аргумента к типу ThreadData*
+    double sum = 0.0; // Локальная переменная для хранения частичной суммы
+
+    // Основной цикл для вычисления частичной суммы
+    for (int i = data->start; i < NUM_STEPS; i += data->step) {
+        if (stop_flag) { // Проверяем флаг завершения
+            break; // Если флаг установлен, выходим из цикла
+        }
+
+        sum += 1.0 / (i * 4.0 + 1.0); // Добавляем текущий член ряда Лейбница
+        sum -= 1.0 / (i * 4.0 + 3.0); // Вычитаем следующий член ряда Лейбница
+
+        if (i % 1000000 == 0) { // Периодически проверяем флаг завершения
+            if (stop_flag) {
+                break; // Если флаг установлен, выходим из цикла
+            }
+        }
+    }
+
+    data->sum = sum; // Сохраняем частичную сумму в структуру данных потока
+    pthread_exit(nullptr); // Завершаем поток
+    return nullptr; // Возвращаем nullptr для соответствия сигнатуре функции
+}
+
+int main(int argc, char** argv) {
+    // Устанавливаем обработчик сигнала SIGINT
+    signal(SIGINT, signal_handler);
+
+    // Проверяем, что передан правильный аргумент командной строки
+    if (argc != 2) {
+        std::cerr << "Usage: " << argv[0] << " <number_of_threads>" << std::endl;
+        return EXIT_FAILURE;
+    }
+
+    int num_threads = std::atoi(argv[1]); // Читаем количество потоков из аргументов командной строки
+    if (num_threads <= 0) {
+        std::cerr << "Number of threads must be positive." << std::endl;
+        return EXIT_FAILURE;
+    }
+
+    // Вектор для хранения идентификаторов потоков
+    std::vector<pthread_t> threads(num_threads);
+    // Вектор для хранения данных потоков
+    std::vector<ThreadData> thread_data(num_threads);
+
+    // Создание потоков
+    for (int i = 0; i < num_threads; ++i) {
+        thread_data[i].start = i; // Начальная итерация для текущего потока
+        thread_data[i].step = num_threads; // Шаг итерации для текущего потока
+        thread_data[i].sum = 0.0; // Инициализация частичной суммы
+
+        // Создаем поток и передаем ему функцию calculate_pi и соответствующие данные
+        if (pthread_create(&threads[i], nullptr, calculate_pi, &thread_data[i]) != 0) {
+            std::cerr << "Error creating thread " << i << std::endl;
+            return EXIT_FAILURE;
+        }
+    }
+
+    // Ожидание завершения всех потоков
+    for (int i = 0; i < num_threads; ++i) {
+        pthread_join(threads[i], nullptr); // Ждем завершения текущего потока
+    }
+
+    // Объединение частичных сумм
+    double pi = 0.0;
+    for (int i = 0; i < num_threads; ++i) {
+        pi += thread_data[i].sum; // Суммируем частичные суммы всех потоков
+    }
+    pi *= 4.0; // Умножаем итоговую сумму на 4 для получения значения Пи
+
+    // Вывод результата
+    std::cout.precision(15); // Устанавливаем точность вывода
+    std::cout << "pi done - " << pi << std::endl; // Выводим результат
+
+    return EXIT_SUCCESS; // Завершаем программу
+}
