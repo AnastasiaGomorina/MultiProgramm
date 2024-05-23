@@ -1,0 +1,36 @@
+#define HAVE_STRUCT_TIMESPEC
+#include <iostream>
+#include <pthread.h>
+
+// Функция, которую будет выполнять созданный поток
+void* print_thread(void* arg) {
+    for (int i = 0; i < 10; ++i) {
+        std::cout << "Сообщение из потока " << i + 1 << std::endl;
+    }
+    return nullptr;
+}
+
+int main() {
+    setlocale(LC_ALL, "Ru");
+    // Переменная для хранения идентификатора потока
+    pthread_t thread;
+
+    // Создание потока, который будет выполнять функцию print_thread
+    if (pthread_create(&thread, nullptr, print_thread, nullptr)) {
+        std::cerr << "Ошибка при создании потока" << std::endl;
+        return 1;
+    }
+
+    // Ожидание завершения дочернего потока
+    if (pthread_join(thread, nullptr)) {
+        std::cerr << "Ошибка при ожидании завершения потока" << std::endl;
+        return 1;
+    }
+
+    // Печать сообщений в основном потоке после завершения дочернего потока
+    for (int i = 0; i < 10; ++i) {
+        std::cout << "Сообщение из основного потока " << i + 1 << std::endl;
+    }
+
+    return 0;
+}
