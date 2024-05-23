@@ -1,0 +1,75 @@
+#include <iostream>
+#include <list>
+#include <string>
+#include <thread>
+#include <mutex>
+#include <condition_variable>
+#include <chrono>
+#include <algorithm> // Включаем заголовочный файл для std::iter_swap
+
+std::list<std::string> listStrings; // Связанный список строк
+std::mutex mtx;                     // Мьютекс для синхронизации доступа к списку
+std::condition_variable cv;         // Условная переменная для синхронизации
+
+// Функция для пузырьковой сортировки списка
+void bubbleSort(std::list<std::string>& lst) {
+    bool swapped;
+    do {
+        swapped = false;
+        for (auto it = lst.begin(); it != --lst.end(); ) {
+            auto next_it = std::next(it);
+            if (*it > *next_it) {
+                std::iter_swap(it, next_it); // Меняем местами элементы через iter_swap
+                swapped = true;
+            }
+            ++it;
+        }
+    } while (swapped); // Продолжаем, пока происходят обмены
+}
+
+// Функция, выполняемая в дочернем потоке
+void sorterThread() {
+    while (true) {
+        std::this_thread::sleep_for(std::chrono::seconds(5)); // Спим 5 секунд
+        std::lock_guard<std::mutex> lg(mtx); // Блокируем мьютекс для синхронизации доступа к списку
+        bubbleSort(listStrings); // Сортируем список
+        std::cout << "Список отсортирован." << std::endl; // Выводим сообщение о завершении сортировки
+    }
+}
+
+// Функция основного потока
+void inputThread() {
+    while (true) {
+        std::string input;
+        std::getline(std::cin, input); // Читаем ввод от пользователя
+
+        if (input.empty()) { // Если введена пустая строка
+            std::lock_guard<std::mutex> lg(mtx); // Блокируем мьютекс для доступа к списку
+            std::cout << "Состояние списка:" << std::endl;
+            for (const auto& str : listStrings) { // Выводим текущее состояние списка
+                std::cout << str << std::endl;
+            }
+            continue; // Продолжаем считывание ввода
+        }
+
+        // Если строка длиннее 80 символов, разбиваем ее на части
+        while (input.length() > 80) {
+            std::lock_guard<std::mutex> lg(mtx); // Блокируем мьютекс для доступа к списку
+            listStrings.push_front(input.substr(0, 80)); // Добавляем первые 80 символов в начало списка
+            input = input.substr(80); // Обрезаем первые 80 символов
+        }
+
+        // Добавляем оставшуюся часть строки в начало списка
+        std::lock_guard<std::mutex> lg(mtx);
+        listStrings.push_front(input);
+    }
+}
+
+int main() {
+    setlocale(LC_ALL, "Ru");
+    // Создаем поток для сортировки списка
+    std::thread sorter(sorterThread);
+    inputThread(); // Запускаем функцию ввода в основном потоке
+    sorter.join(); // Дожидаемся завершения сортирующего потока (теоретически, никогда не завершится)
+    return 0;
+}
