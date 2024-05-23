@@ -1,0 +1,71 @@
+#define HAVE_STRUCT_TIMESPEC
+#include <iostream>
+#include <pthread.h>
+
+// Объявляем мьютексы и условные переменные для синхронизации
+pthread_mutex_t mutex;          // Мьютекс для синхронизации доступа к общим ресурсам
+pthread_cond_t cond_parent;     // Условная переменная для родительского потока
+pthread_cond_t cond_child;      // Условная переменная для дочернего потока
+bool parent_turn = true;        // Флаг для определения очередности выполнения: true - ход родительского потока, false - ход дочернего потока
+
+// Функция, которую будет выполнять созданный (дочерний) поток
+void* print_thread(void*) {
+    for (int i = 0; i < 10; ++i) {
+        // Захватываем мьютекс для синхронизации
+        pthread_mutex_lock(&mutex);
+        // Ожидаем, пока не наступит очередь дочернего потока
+        while (parent_turn) {
+            pthread_cond_wait(&cond_child, &mutex);
+        }
+        // Печатаем сообщение из дочернего потока
+        std::cout << "Сообщение из потока " << i + 1 << std::endl;
+        // Устанавливаем флаг для передачи управления родительскому потоку
+        parent_turn = true;
+        // Сигнализируем родительскому потоку, что он может продолжить выполнение
+        pthread_cond_signal(&cond_parent);
+        // Освобождаем мьютекс
+        pthread_mutex_unlock(&mutex);
+    }
+    return nullptr; // Возвращаем nullptr для завершения функции потока
+}
+
+int main() {
+    // Устанавливаем локаль для поддержки русского языка
+    setlocale(LC_ALL, "Ru");
+
+    // Инициализируем мьютексы и условные переменные
+    pthread_mutex_init(&mutex, nullptr); // Инициализация мьютекса
+    pthread_cond_init(&cond_parent, nullptr); // Инициализация условной переменной для родительского потока
+    pthread_cond_init(&cond_child, nullptr); // Инициализация условной переменной для дочернего потока
+
+    // Создаем дочерний поток
+    pthread_t t;
+    pthread_create(&t, nullptr, print_thread, nullptr);
+
+    for (int i = 0; i < 10; ++i) {
+        // Захватываем мьютекс для синхронизации
+        pthread_mutex_lock(&mutex);
+        // Ожидаем, пока не наступит очередь родительского потока
+        while (!parent_turn) {
+            pthread_cond_wait(&cond_parent, &mutex);
+        }
+        // Печатаем сообщение из родительского потока
+        std::cout << "Сообщение из родительского потока " << i + 1 << std::endl;
+        // Устанавливаем флаг для передачи управления дочернему потоку
+        parent_turn = false;
+        // Сигнализируем дочернему потоку, что он может продолжить выполнение
+        pthread_cond_signal(&cond_child);
+        // Освобождаем мьютекс
+        pthread_mutex_unlock(&mutex);
+    }
+
+    // Ожидаем завершения дочернего потока
+    pthread_join(t, nullptr);
+
+    // Уничтожаем мьютексы и условные переменные
+    pthread_mutex_destroy(&mutex); // Уничтожение мьютекса
+    pthread_cond_destroy(&cond_parent); // Уничтожение условной переменной для родительского потока
+    pthread_cond_destroy(&cond_child); // Уничтожение условной переменной для дочернего потока
+
+    return 0; // Завершаем выполнение программы
+}
