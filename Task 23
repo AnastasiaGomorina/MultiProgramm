@@ -1,0 +1,124 @@
+#define HAVE_STRUCT_TIMESPEC
+#include <iostream>
+#include <pthread.h>
+#include <chrono>
+#include <thread>
+#include <vector>
+#include <string>
+#include <fstream>
+#include <list>
+#include <memory>
+#include <mutex>
+
+// Структура для передачи параметров потока
+struct ThreadData {
+    std::string str; // строка для сортировки
+    int delay;       // задержка в миллисекундах
+
+    // Конструктор для инициализации переменных
+    ThreadData(const std::string& s, int d) : str(s), delay(d) {}
+};
+
+// Глобальный связный список для хранения отсортированных строк
+std::list<std::shared_ptr<std::string>> sorted_list;
+// Мьютекс для синхронизации доступа к списку
+pthread_mutex_t list_mutex;
+
+// Функция, выполняемая потоком
+void* sleep_and_add_to_list(void* arg) {
+    ThreadData* data = static_cast<ThreadData*>(arg); // Преобразование аргумента к указателю на ThreadData
+    // Задержка, пропорциональная длине строки
+    std::this_thread::sleep_for(std::chrono::milliseconds(data->delay));
+
+    // Захват мьютекса для синхронизации доступа к списку
+    pthread_mutex_lock(&list_mutex);
+    // Добавление строки в связный список
+    sorted_list.push_back(std::make_shared<std::string>(data->str));
+    // Освобождение мьютекса
+    pthread_mutex_unlock(&list_mutex);
+
+    return nullptr;
+}
+
+// Функция для загрузки строк из файла
+bool load_strings_from_file(const std::string& filename, std::vector<std::string>& strings) {
+    std::ifstream file(filename); // Открытие файла
+    if (!file.is_open()) {
+        // Если файл не удалось открыть, выводим сообщение об ошибке и возвращаем false
+        std::cerr << "Не удалось открыть файл: " << filename << std::endl;
+        return false;
+    }
+    std::string line;
+    // Чтение строк из файла
+    while (std::getline(file, line)) {
+        if (!line.empty()) {
+            strings.push_back(line); // Добавление непустой строки в вектор
+        }
+    }
+    file.close(); // Закрытие файла
+    return true;
+}
+
+int main() {
+    // Установка локали для корректного отображения кириллических символов
+    setlocale(LC_ALL, "Ru");
+
+    std::vector<std::string> strings;
+
+    // Имя файла с входными данными
+    std::string filename = "Task_6.txt";
+
+    // Загрузка строк из файла
+    if (!load_strings_from_file(filename, strings)) {
+        return 1; // Завершение программы с кодом ошибки, если не удалось загрузить строки
+    }
+
+    // Вектор для хранения потоков
+    std::vector<pthread_t> threads(strings.size());
+    // Вектор для хранения данных потоков
+    std::vector<ThreadData> thread_data;
+
+    // Коэффициент пропорциональности задержки (в миллисекундах на символ)
+    const int delay_factor = 2000;
+
+    // Инициализация мьютекса
+    pthread_mutex_init(&list_mutex, nullptr);
+
+    // Заполнение данных потоков и создание потоков
+    for (const auto& str : strings) {
+        int delay = str.length() * delay_factor; // Вычисление задержки на основе длины строки
+        thread_data.emplace_back(str, delay);    // Создание объекта ThreadData и добавление его в вектор
+    }
+
+    // Создание потоков
+    for (size_t i = 0; i < strings.size(); ++i) {
+        // Создание потока, выполняющего функцию sleep_and_add_to_list
+        if (pthread_create(&threads[i], nullptr, sleep_and_add_to_list, &thread_data[i])) {
+            std::cerr << "Ошибка при создании потока" << std::endl;
+            return 1; // Завершение программы с кодом ошибки, если не удалось создать поток
+        }
+    }
+
+    // Ожидание завершения всех потоков
+    for (size_t i = 0; i < threads.size(); ++i) {
+        // Ожидание завершения потока
+        if (pthread_join(threads[i], nullptr)) {
+            std::cerr << "Ошибка при ожидании завершения потока" << std::endl;
+            return 1; // Завершение программы с кодом ошибки, если не удалось дождаться завершения потока
+        }
+    }
+
+    // Захват мьютекса для синхронизации доступа к списку перед выводом его содержимого
+    pthread_mutex_lock(&list_mutex);
+    // Вывод содержимого списка после завершения всех потоков
+    for (const auto& str_ptr : sorted_list) {
+        std::cout << *str_ptr << std::endl; // Вывод строки
+    }
+    // Освобождение мьютекса
+    pthread_mutex_unlock(&list_mutex);
+
+    // Уничтожение мьютекса
+    pthread_mutex_destroy(&list_mutex);
+
+    return 0; // Успешное завершение программы
+}
