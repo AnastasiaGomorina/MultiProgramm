@@ -1,0 +1,100 @@
+#include <iostream>
+#include <list>
+#include <string> 
+#include <thread>
+#include <mutex>
+#include <condition_variable> 
+#include <chrono>     
+#include <memory>    
+
+
+// Структура для хранения строки и мьютекса
+struct ListNode {
+    std::string data; // Данные строки
+    std::mutex mtx;   // Мьютекс для синхронизации доступа к строке
+
+    // Конструктор инициализирует строку
+    ListNode(const std::string& str) : data(str) {}
+};
+
+std::list<std::shared_ptr<ListNode>> listStrings; // Связанный список строк
+std::mutex listMtx;  // Мьютекс для синхронизации доступа к самому списку
+
+// Функция для пузырьковой сортировки списка
+void bubbleSort(std::list<std::shared_ptr<ListNode>>& lst) {
+    bool swapped; // Флаг для отслеживания обменов
+    do {
+        swapped = false;
+        auto it = lst.begin(); // Итератор для перебора списка
+        while (it != lst.end()) {
+            auto current = it;           // Текущая запись
+            auto next = std::next(it);   // Следующая запись
+
+            if (next == lst.end()) break; // Если следующая запись отсутствует, выходим из цикла
+
+            // Захватываем мьютексы в порядке следования
+            std::unique_lock<std::mutex> lock1((*current)->mtx, std::defer_lock); // Блокируем мьютекс текущей записи
+            std::unique_lock<std::mutex> lock2((*next)->mtx, std::defer_lock);    // Блокируем мьютекс следующей записи
+
+            // Захватываем мьютексы атомарно, избегая взаимных блокировок
+            std::lock(lock1, lock2);
+
+            // Сравниваем и меняем местами, если необходимо
+            if ((*current)->data > (*next)->data) {
+                // Меняем местами данные
+                std::swap(*current, *next); // Меняем местами указатели
+                swapped = true; // Устанавливаем флаг, указывающий, что произошел обмен
+            }
+            ++it; // Переходим к следующей записи
+        }
+    } while (swapped); // Продолжаем, пока происходят обмены
+}
+
+// Функция, выполняемая в дочернем потоке
+void sorterThread() {
+    while (true) {
+        std::this_thread::sleep_for(std::chrono::seconds(5)); // Спим 5 секунд перед сортировкой
+        std::lock_guard<std::mutex> lg(listMtx); // Блокируем мьютекс для синхронизации доступа к списку
+        bubbleSort(listStrings); // Сортируем список
+        std::cout << "Список отсортирован." << std::endl; // Выводим сообщение о завершении сортировки
+    }
+}
+
+// Функция основного потока
+void inputThread() {
+    while (true) {
+        std::string input;
+        std::getline(std::cin, input); // Читаем ввод от пользователя
+
+        if (input.empty()) { // Если введена пустая строка
+            std::lock_guard<std::mutex> lg(listMtx); // Блокируем мьютекс для доступа к списку
+            std::cout << "Состояние списка:" << std::endl;
+            for (const auto& node : listStrings) { // Проходим по списку и выводим его содержимое
+                std::lock_guard<std::mutex> lock(node->mtx); // Блокируем мьютекс записи перед выводом
+                std::cout << node->data << std::endl; // Выводим данные записи
+            }
+            continue; // Продолжаем считывание ввода
+        }
+
+        // Если строка длиннее 80 символов, разбиваем ее на части
+        while (input.length() > 80) {
+            std::string part = input.substr(0, 80); // Отрезаем первые 80 символов
+            input = input.substr(80);              // Оставляем оставшуюся часть строки
+            std::shared_ptr<ListNode> newNode = std::make_shared<ListNode>(part); // Создаем новую запись
+            std::lock_guard<std::mutex> lg(listMtx); // Блокируем мьютекс для доступа к списку
+            listStrings.push_front(newNode); // Добавляем новую запись в начало списка
+        }
+
+        // Добавляем оставшуюся часть строки в начало списка
+        std::shared_ptr<ListNode> newNode = std::make_shared<ListNode>(input);
+        std::lock_guard<std::mutex> lg(listMtx); // Блокируем мьютекс для доступа к списку
+        listStrings.push_front(newNode); // Добавляем новую запись в начало списка
+    }
+}
+int main() {
+    setlocale(LC_ALL, "Ru");
+    std::thread sorter(sorterThread); // Создаем поток для сортировки списка   
+    inputThread(); // Запускаем функцию ввода в основном потоке  
+    sorter.join(); // Дожидаемся завершения сортирующего потока (теоретически, никогда не завершится)
+    return 0;
+}
