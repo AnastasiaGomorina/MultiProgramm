@@ -1,0 +1,158 @@
+#define HAVE_STRUCT_TIMESPEC
+#include <iostream>
+#include <pthread.h>
+#include <chrono>
+#include <thread>
+
+#define PHILO 5           // Количество философов
+#define DELAY 30          // Задержка для симуляции времени еды в миллисекундах
+#define FOOD 50           // Количество порций еды, доступных на столе
+
+// Объявление мьютексов для каждой вилки
+pthread_mutex_t forks[PHILO];
+// Объявление мьютекса и условной переменной для синхронизации захвата вилок
+pthread_mutex_t forks_lock;
+pthread_cond_t forks_cond;
+// Объявление мьютекса для управления выводом в консоль
+pthread_mutex_t output_lock;
+// Объявление потоков, каждый из которых представляет одного философа
+pthread_t phils[PHILO];
+
+// Прототипы функций, используемых в программе
+void* philosopher(void* id);
+int food_on_table();
+void get_forks(int phil, int left_fork, int right_fork);
+void down_forks(int left_fork, int right_fork);
+pthread_mutex_t foodlock;
+
+// Переменная для хранения времени сна первого философа
+int sleep_seconds = 0;
+
+int main(int argc, char** argv) {
+    // Инициализация времени сна из аргументов командной строки, если оно задано
+    if (argc == 2) sleep_seconds = std::atoi(argv[1]);
+
+    // Инициализация мьютекса для контроля доступа к еде
+    pthread_mutex_init(&foodlock, nullptr);
+    // Инициализация мьютекса и условной переменной для синхронизации захвата вилок
+    pthread_mutex_init(&forks_lock, nullptr);
+    pthread_cond_init(&forks_cond, nullptr);
+    // Инициализация мьютекса для синхронизации вывода в консоль
+    pthread_mutex_init(&output_lock, nullptr);
+
+    // Инициализация мьютексов для каждой вилки
+    for (int i = 0; i < PHILO; ++i) {
+        pthread_mutex_init(&forks[i], nullptr);
+    }
+
+    // Создание потоков для каждого философа
+    for (int i = 0; i < PHILO; ++i) {
+        pthread_create(&phils[i], nullptr, philosopher, (void*)(intptr_t)i);
+    }
+
+    // Ожидание завершения всех потоков
+    for (int i = 0; i < PHILO; ++i) {
+        pthread_join(phils[i], nullptr);
+    }
+
+    // Очистка мьютекса и условной переменной для вилок
+    pthread_mutex_destroy(&forks_lock);
+    pthread_cond_destroy(&forks_cond);
+    // Очистка мьютекса для вывода
+    pthread_mutex_destroy(&output_lock);
+    return 0;
+}
+
+void* philosopher(void* num) {
+    int id = (intptr_t)num;  // Идентификатор философа
+    int left_fork = id;      // Индекс левой вилки
+    int right_fork = (id + 1) % PHILO; // Индекс правой вилки
+
+    // Последний философ берёт вилки в обратном порядке, чтобы избежать взаимной блокировки
+    if (id == PHILO - 1) {
+        left_fork = (id + 1) % PHILO;
+        right_fork = id;
+    }
+
+    // Цикл, пока есть еда
+    while (int f = food_on_table()) {
+        // Усыпление философа 1 на заданное время
+        if (id == 1) std::this_thread::sleep_for(std::chrono::seconds(sleep_seconds));
+
+        // Захват мьютекса для вывода и сообщение о получении блюда
+        pthread_mutex_lock(&output_lock);
+        std::cout << "Philosopher " << id << ": get dish " << f << ".\n";
+        pthread_mutex_unlock(&output_lock);
+
+        // Взятие левой и правой вилки
+        get_forks(id, left_fork, right_fork);
+
+        // Сообщение о начале еды
+        pthread_mutex_lock(&output_lock);
+        std::cout << "Philosopher " << id << ": eating.\n";
+        pthread_mutex_unlock(&output_lock);
+
+        // Имитация процесса еды
+        std::this_thread::sleep_for(std::chrono::milliseconds(DELAY * (FOOD - f + 1)));
+
+        // Освобождение вилок
+        down_forks(left_fork, right_fork);
+
+        // Сообщение о завершении еды
+        pthread_mutex_lock(&output_lock);
+        std::cout << "Philosopher " << id << " is done eating.\n";
+        pthread_mutex_unlock(&output_lock);
+    }
+    return nullptr;
+}
+
+// Функция, проверяющая количество оставшейся еды
+int food_on_table() {
+    static int food = FOOD;
+    int myfood;
+
+    pthread_mutex_lock(&foodlock);
+    if (food > 0) {
+        --food;
+    }
+    myfood = food;
+    pthread_mutex_unlock(&foodlock);
+
+    return myfood;
+}
+
+// Функция для захвата вилок
+void get_forks(int phil, int left_fork, int right_fork) {
+    pthread_mutex_lock(&forks_lock);
+
+    while (true) {
+        // Проверяем доступность вилок
+        if (pthread_mutex_trylock(&forks[left_fork]) == 0) {
+            if (pthread_mutex_trylock(&forks[right_fork]) == 0) {
+                // Захватили обе вилки
+                pthread_mutex_unlock(&forks_lock);
+                pthread_mutex_lock(&output_lock);
+                std::cout << "Philosopher " << phil << ": got left fork " << left_fork << " and right fork " << right_fork << ".\n";
+                pthread_mutex_unlock(&output_lock);
+                return;
+            }
+            else {
+                // Не удалось захватить правую вилку, отпускаем левую вилку
+                pthread_mutex_unlock(&forks[left_fork]);
+            }
+        }
+        // Ожидаем освобождения вилок
+        pthread_cond_wait(&forks_cond, &forks_lock);
+    }
+}
+
+// Функция для освобождения вилок
+void down_forks(int left_fork, int right_fork) {
+    pthread_mutex_unlock(&forks[left_fork]);
+    pthread_mutex_unlock(&forks[right_fork]);
+
+    // Уведомляем остальных философов об освобождении вилок
+    pthread_mutex_lock(&forks_lock);
+    pthread_cond_broadcast(&forks_cond);
+    pthread_mutex_unlock(&forks_lock);
+}
