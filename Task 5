@@ -1,0 +1,58 @@
+#define HAVE_STRUCT_TIMESPEC
+#include <iostream>
+#include <pthread.h>
+#include <chrono>
+#include <thread> // для std::this_thread::sleep_for
+
+// Функция очистки (cleanup handler), которая будет вызвана перед завершением потока
+void cleanup_handler(void* arg) {
+    std::cout << "Дочерний поток завершается" << std::endl;
+}
+
+// Функция, которую будет выполнять созданный поток
+void* print_thread(void* arg) {
+    int counter = 0;
+    // Установка функции очистки
+    pthread_cleanup_push(cleanup_handler, nullptr);
+
+    while (true) {
+        std::cout << "Сообщение из дочернего потока " << ++counter << std::endl;
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+    }
+
+    // Обеспечение вызова функции очистки
+    pthread_cleanup_pop(1);
+
+    return NULL;
+}
+
+int main() {
+    setlocale(LC_ALL, "Ru");
+    // Переменная для хранения идентификатора потока
+    pthread_t thread;
+
+    // Создание потока, который будет выполнять функцию print_thread
+    if (pthread_create(&thread, nullptr, print_thread, nullptr)) {
+        std::cerr << "Ошибка при создании потока" << std::endl;
+        return 1;
+    }
+
+    // Родительский поток ждет 2 секунды
+    std::this_thread::sleep_for(std::chrono::seconds(2));
+
+    // Принудительное завершение дочернего потока
+    if (pthread_cancel(thread)) {
+        std::cerr << "Ошибка при завершении потока" << std::endl;
+        return 1;
+    }
+
+    // Ожидание завершения дочернего потока
+    if (pthread_join(thread, nullptr)) {
+        std::cerr << "Ошибка при ожидании завершения потока" << std::endl;
+        return 1;
+    }
+
+    std::cout << "Дочерний поток был завершен" << std::endl;
+
+    return 0;
+}
