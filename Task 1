@@ -1,0 +1,25 @@
+#include <iostream>
+#include <thread>
+
+// Функция, которую будет выполнять созданный поток
+void print_thread() {
+    for (int i = 0; i < 10; ++i) {
+        std::cout << "Сообщение из потока " << i + 1 << std::endl;
+    }
+}
+
+int main() {
+    setlocale(LC_ALL, "Ru");
+    // Создание потока
+    std::thread t(print_thread);
+
+    // Печать сообщений в основном потоке
+    for (int i = 0; i < 10; ++i) {
+        std::cout << "Сообщение из родительского потока " << i + 1 << std::endl;
+    }
+
+    // Ожидание завершения созданного потока
+    t.join();
+
+    return 0;
+}
