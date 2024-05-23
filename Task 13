@@ -1,0 +1,47 @@
+#include <iostream>
+#include <thread>
+#include <mutex>
+#include <condition_variable>
+
+// Мьютекс для защиты общего состояния
+std::mutex mtx;
+// Условная переменная для синхронизации
+std::condition_variable cv;
+// Флаг, определяющий, чей сейчас ход выводить сообщение
+bool is_parent_turn = true;
+
+// Функция для вывода сообщений в родительском потоке
+void print_parent() {
+    for (int i = 0; i < 10; ++i) {
+        std::unique_lock<std::mutex> lock(mtx); // Захват мьютекса
+        cv.wait(lock, [] { return is_parent_turn; }); // Ожидание своего хода
+        std::cout << "Сообщение из родительского потока " << i + 1 << std::endl;
+        is_parent_turn = false; // Передача хода дочернему потоку
+        cv.notify_all(); // Уведомление дочернего потока
+    }
+}
+
+// Функция для вывода сообщений в дочернем потоке
+void print_child() {
+    for (int i = 0; i < 10; ++i) {
+        std::unique_lock<std::mutex> lock(mtx); // Захват мьютекса
+        cv.wait(lock, [] { return !is_parent_turn; }); // Ожидание своего хода
+        std::cout << "Сообщение из дочернего потока " << i + 1 << std::endl;
+        is_parent_turn = true; // Передача хода родительскому потоку
+        cv.notify_all(); // Уведомление родительского потока
+    }
+}
+
+int main() {
+    setlocale(LC_ALL, "Ru");
+
+    // Создание потоков
+    std::thread parent(print_parent);
+    std::thread child(print_child);
+
+    // Ожидание завершения потоков
+    parent.join();
+    child.join();
+
+    return 0;
+}
