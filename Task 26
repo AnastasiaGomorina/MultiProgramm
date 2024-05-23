@@ -1,0 +1,92 @@
+#include <iostream>
+#include <string>
+#include <queue>
+#include <thread>
+#include <mutex>
+#include <condition_variable>
+
+// Структура для реализации очереди сообщений
+struct MessageQueue {
+    std::queue<std::string> messages; // Очередь сообщений
+    std::mutex mutex; // Мьютекс для защиты доступа к очереди
+    std::condition_variable condition; // Условная переменная для синхронизации доступа к очереди
+    const size_t max_size; // Максимальный размер очереди
+
+    // Конструктор для инициализации максимального размера очереди
+    MessageQueue(size_t max) : max_size(max) {}
+
+    // Метод для добавления сообщения в очередь
+    int mymsgput(const std::string& msg) {
+        std::unique_lock<std::mutex> lock(mutex); // Захватываем мьютекс
+        condition.wait(lock, [this] { return messages.size() < max_size; }); // Ожидаем, пока в очереди не будет места
+        messages.push(msg); // Добавляем сообщение в очередь
+        condition.notify_all(); // Уведомляем ожидающие потоки о добавлении сообщения
+        return msg.size(); // Возвращаем количество переданных символов
+    }
+
+    // Метод для получения сообщения из очереди
+    int mymsgget(std::string& msg, size_t bufsize) {
+        std::unique_lock<std::mutex> lock(mutex); // Захватываем мьютекс
+        condition.wait(lock, [this] { return !messages.empty(); }); // Ожидаем, пока в очереди не появится сообщение
+        msg = messages.front(); // Получаем первое сообщение из очереди
+        size_t len = std::min(bufsize, msg.size()); // Определяем размер сообщения для копирования
+        messages.pop(); // Удаляем сообщение из очереди
+        condition.notify_all(); // Уведомляем ожидающие потоки об извлечении сообщения
+        return len; // Возвращаем количество прочитанных символов
+    }
+
+    // Метод для очистки очереди
+    void mymsgdrop() {
+        std::unique_lock<std::mutex> lock(mutex); // Захватываем мьютекс
+        while (!messages.empty()) messages.pop(); // Удаляем все сообщения из очереди
+        condition.notify_all(); // Уведомляем ожидающие потоки об изменении состояния очереди
+    }
+};
+
+// Функция производителя
+void producer(MessageQueue& queue, int id) {
+    for (int i = 0; i < 5; ++i) {
+        std::string msg = "Производитель " + std::to_string(id) + " сообщение " + std::to_string(i);
+        int size = queue.mymsgput(msg); // Добавляем сообщение в очередь
+        {
+            std::lock_guard<std::mutex> lock(queue.mutex); // Захватываем мьютекс
+            std::cout << "Производитель " << id << " отправил " << size << " символов: " << msg << std::endl; // Выводим информацию о переданном сообщении
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(100)); // Имитируем работу производителя
+    }
+}
+
+// Функция потребителя
+void consumer(MessageQueue& queue, int id) {
+    for (int i = 0; i < 5; ++i) {
+        std::string msg;
+        int size = queue.mymsgget(msg, 80); // Получаем сообщение из очереди
+        {
+            std::lock_guard<std::mutex> lock(queue.mutex); // Захватываем мьютекс
+            std::cout << "Потребитель " << id << " получил " << size << " символов: " << msg << std::endl; // Выводим информацию о полученном сообщении
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(200)); // Имитируем работу потребителя
+    }
+}
+
+int main() {
+    setlocale(LC_ALL, "Russian");
+
+    MessageQueue queue(10); // Создаем очередь сообщений с максимальным размером 10
+
+    // Создаем потоки производителей
+    std::thread producer1(producer, std::ref(queue), 1);
+    std::thread producer2(producer, std::ref(queue), 2);
+
+    // Создаем потоки потребителей
+    std::thread consumer1(consumer, std::ref(queue), 1);
+    std::thread consumer2(consumer, std::ref(queue), 2);
+
+    // Дожидаемся завершения всех потоков
+    producer1.join();
+    producer2.join();
+    consumer1.join();
+    consumer2.join();
+
+    return 0;
+}
